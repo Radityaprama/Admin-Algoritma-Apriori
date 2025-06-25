@@ -4,7 +4,36 @@ if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
     header("Location: ../auth/login.php");
     exit();
 }
-include '../includes/db.php';
+include '../includes/db.php'; 
+
+$api_url = 'http://127.0.0.1:5000/api/apriori';
+
+$response_json = @file_get_contents($api_url);
+
+$frequent_itemsets = [];
+$association_rules = [];
+$min_support = 0.1;
+$min_confidence = 0.5;
+$total_transactions = 0;
+
+if ($response_json === FALSE) {
+    echo '<div class="alert alert-danger" role="alert">Error: Gagal terhubung ke layanan Apriori (pastikan server Python berjalan di ' . $api_url . ').</div>';
+} else {
+    $api_results = json_decode($response_json, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        echo '<div class="alert alert-danger" role="alert">Error: Gagal mengurai respons JSON dari layanan Apriori.</div>';
+        error_log("JSON Decode Error: " . json_last_error_msg() . " - Response: " . $response_json);
+    } elseif (isset($api_results['error'])) {
+        echo '<div class="alert alert-danger" role="alert">Error dari layanan Apriori: ' . htmlspecialchars($api_results['error']) . '</div>';
+    } else {
+        $frequent_itemsets = $api_results['frequent_itemsets'] ?? [];
+        $association_rules = $api_results['association_rules'] ?? [];
+        $min_support = $api_results['min_support'] ?? 0.1;
+        $min_confidence = $api_results['min_confidence'] ?? 0.5;
+        $total_transactions = $api_results['total_transactions'] ?? 0;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -40,6 +69,13 @@ include '../includes/db.php';
             padding: 2rem;
             width: 100%;
         }
+        .result-section {
+            margin-bottom: 3rem;
+            border: 1px solid #ddd;
+            padding: 1.5rem;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
     </style>
 </head>
 <body>
@@ -53,95 +89,93 @@ include '../includes/db.php';
         <a href="logout.php"><i class="bi bi-box-arrow-right"></i> Logout</a>
     </div>
     <div class="main-content">
-        <h2>Data Apriori</h2>
-        <table class="table table-bordered table-striped">
+        <h2>Hasil Analisis Algoritma Apriori</h2>
+        <hr>
+
+        <div class="result-section mb-4">
+            <h4>Parameter Algoritma:</h4>
+            <p>Minimum Support: <strong><?php echo isset($min_support) ? number_format($min_support * 100, 2) . '%' : 'N/A'; ?></strong></p>
+            <p>Minimum Confidence: <strong><?php echo isset($min_confidence) ? number_format($min_confidence * 100, 2) . '%' : 'N/A'; ?></strong></p>
+        </div>
+
+        <h3>Frequent Itemsets</h3>
+        <table class="table table-bordered table-striped mt-3">
             <thead>
                 <tr>
                     <th>No</th>
                     <th>Itemset</th>
-                    <th>Support</th>
-                    <th>Confidence</th>
-                    <th>Aksi</th>
+                    <th>Support (Count)</th>
+                    <th>Support (%)</th>
                 </tr>
             </thead>
             <tbody>
-                <?php 
-                $query = mysqli_query($conn, "SELECT * FROM apriori");
-                $no = 1;
-                while ($row = mysqli_fetch_assoc($query)) {
-                    echo "<tr>
-                            <td>" . $no++ . "</td>
-                            <td>{$row['itemset']}</td>
-                            <td>{$row['support']}</td>
-                            <td>{$row['confidence']}</td>
-                            <td>
-                                <button class='btn btn-warning btn-sm editBtn' data-id='{$row['id']}' data-itemset='{$row['itemset']}' data-support='{$row['support']}' data-confidence='{$row['confidence']}'>Edit</button>
-                                <button class='btn btn-danger btn-sm deleteBtn' data-id='{$row['id']}'>Hapus</button>
-                            </td>
-                          </tr>";
+                <?php
+                if (!empty($frequent_itemsets) && is_array($frequent_itemsets)) {
+                    $no = 1;
+                    foreach ($frequent_itemsets as $itemset_key => $support_ratio) {
+                        $itemset_display = explode(',', $itemset_key);
+                        sort($itemset_display);
+                        $itemset_display_str = implode(', ', $itemset_display);
+
+                        $support_count = ($total_transactions > 0) ? round($support_ratio * $total_transactions) : 'N/A';
+                        $support_percentage = number_format($support_ratio * 100, 2) . '%';
+                        
+                        echo "<tr>";
+                        echo "<td>" . $no++ . "</td>";
+                        echo "<td>{" . $itemset_display_str . "}</td>";
+                        echo "<td>" . $support_count . "</td>";
+                        echo "<td>" . $support_percentage . "</td>";
+                        echo "</tr>";
+                    }
+                } else {
+                    echo "<tr><td colspan='4' class='text-center'>Tidak ada Frequent Itemsets ditemukan.</td></tr>";
                 }
                 ?>
             </tbody>
         </table>
-    </div>
 
-    <!-- Modal Edit Apriori -->
-    <div class="modal fade" id="editModal" tabindex="-1">
-        <div class="modal-dialog">
-            <form action="apriori_edit.php" method="post" class="modal-content">
-                <input type="hidden" name="id" id="editId">
-                <div class="modal-header">
-                    <h5 class="modal-title">Edit Apriori</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="text" name="itemset" id="editItemset" class="form-control mb-2" required>
-                    <input type="number" name="support" id="editSupport" class="form-control mb-2" required>
-                    <input type="number" name="confidence" id="editConfidence" class="form-control mb-2" required>
-                </div>
-                <div class="modal-footer">
-                    <button type="submit" class="btn btn-success">Update</button>
-                </div>
-            </form>
-        </div>
-    </div>
+        <h3 class="mt-5">Association Rules</h3>
+        <table class="table table-bordered table-striped mt-3">
+            <thead>
+                <tr>
+                    <th>No</th>
+                    <th>Rule (If... Then...)</th>
+                    <th>Support (%)</th>
+                    <th>Confidence (%)</th>
+                    <th>Lift</th>
+                    <th>Rekomendasi Display</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                if (!empty($association_rules) && is_array($association_rules)) {
+                    $no = 1;
+                    foreach ($association_rules as $rule) {
+                        $antecedent_str = implode(', ', $rule['antecedent']);
+                        $consequent_str = implode(', ', $rule['consequent']);
+                        $support_perc = number_format($rule['support'] * 100, 2) . '%';
+                        $confidence_perc = number_format($rule['confidence'] * 100, 2) . '%';
+                        $lift_val = number_format($rule['lift'], 2);
+                        $rekomendasi_display_str = htmlspecialchars($rule['rekomendasi_display'] ?? 'N/A');
 
-    <!-- Modal Hapus Apriori -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
-        <div class="modal-dialog">
-            <form action="apriori_delete.php" method="post" class="modal-content">
-                <input type="hidden" name="id" id="deleteId">
-                <div class="modal-header">
-                    <h5 class="modal-title">Konfirmasi Hapus</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Yakin ingin menghapus itemset ini?</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="submit" class="btn btn-danger">Hapus</button>
-                </div>
-            </form>
-        </div>
+                        echo "<tr>";
+                        echo "<td>" . $no++ . "</td>";
+                        echo "<td>{" . $antecedent_str . "} &rArr; {" . $consequent_str . "}</td>";
+                        echo "<td>" . $support_perc . "</td>";
+                        echo "<td>" . $confidence_perc . "</td>";
+                        echo "<td>" . $lift_val . "</td>";
+                        echo "<td>" . $rekomendasi_display_str . "</td>";
+                        echo "</tr>";
+                    }
+                } else {
+                    echo "<tr><td colspan='6' class='text-center'>Tidak ada Association Rules ditemukan.</td></tr>";
+                }
+                ?>
+            </tbody>
+        </table>
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.querySelectorAll('.editBtn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.getElementById('editId').value = btn.dataset.id;
-                document.getElementById('editItemset').value = btn.dataset.itemset;
-                document.getElementById('editSupport').value = btn.dataset.support;
-                document.getElementById('editConfidence').value = btn.dataset.confidence;
-                new bootstrap.Modal(document.getElementById('editModal')).show();
-            });
-        });
-        document.querySelectorAll('.deleteBtn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.getElementById('deleteId').value = btn.dataset.id;
-                new bootstrap.Modal(document.getElementById('deleteModal')).show();
-            });
-        });
-    </script>
 </body>
 </html>

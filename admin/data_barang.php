@@ -76,7 +76,7 @@ include '../includes/db.php';
                   <td>" . $no++ . "</td>
                   <td>{$row['nama_barang']}</td>
                   <td>{$row['stok']}</td>
-                  <td>Rp " . number_format($row['harga']) . "</td>
+                  <td>Rp. " . number_format($row['harga']) . "</td>
                   <td>
                     <button class='btn btn-warning btn-sm editBtn' data-id='{$row['id']}' data-nama='{$row['nama_barang']}' data-stok='{$row['stok']}' data-harga='{$row['harga']}'>Edit</button>
                     <button class='btn btn-danger btn-sm deleteBtn' data-id='{$row['id']}'>Hapus</button>
